@@ -18,16 +18,17 @@ GWASpoly_glm <- function(data,
                          verbose=F) {
   
   # Checks
-  if(!all(colnames(data@pheno)[-1] %in% traits))
-    stop(paste("Variable name:", traits[which(!colnames(data@pheno) %in% traits)],"not found in phenotypic data"))
-  
+  if(!is.null(traits)){
+    if(!all(colnames(data@pheno)[-1] %in% traits))
+      stop(paste("Variable name:", traits[which(!colnames(data@pheno) %in% traits)],"not found in phenotypic data"))
+  } else traits <- colnames(data@pheno)[-1]
   colnames(data@pheno)[1] <- "id"
   
   # Read geno file, dosage codification
   marker.data <- data@geno
   
   # Guarantee row order match with BLUES - individuals in row and markers in column
-  X <- as.matrix(marker.data[match(blues$id,rownames(marker.data)),])
+  X <- as.matrix(marker.data[match(data@pheno$id,rownames(marker.data)),])
   m <- ncol(X) # number of markers
   
   scores <- list()
@@ -49,13 +50,15 @@ GWASpoly_glm <- function(data,
       print(paste("Total Iterations:",iter))
       
       # markers in the baseline model (bm)
-      bm.qtn <- match(data2$model,colnames(X))
+      bm.qtn <- match(unique(data2$model),colnames(X))
       
       # Principal Coordinates (from multi-dimensional scaling)
       dm <- dist(X)
       mds <- cmdscale(dm,k=2)
       
       data3 <- data.frame(y=data2$y,pc1=mds[,1],pc2=mds[,2],X)
+
+      #data3[,which(colnames(data3) == "Chr13_022193410")]
       
       # This model add PC1, PC2 and all variables
       mf <- paste("y",paste(c("1+pc1+pc2",data2$model),collapse="+"),sep="~")
@@ -67,7 +70,7 @@ GWASpoly_glm <- function(data,
         bm1 <- lm(as.formula(mf),data3)
         mf <- paste("y",paste(c("1+pc2",data2$model),collapse="+"),sep="~")
         bm2 <- lm(as.formula(mf),data3)
-        mf <- paste("y",paste(c("1+",data2$model),collapse="+"),sep="~")
+        mf <- paste("y",paste(c("1",data2$model),collapse="+"),sep="~")
         bm <- lm(as.formula(mf),data3)
         all.mod <- list("PCs not included"=bm, "PC1 included" = bm1, "PC2 included"=bm2, "PC1 and PC2 included"=bm12)
         
@@ -77,11 +80,15 @@ GWASpoly_glm <- function(data,
         bm <- all.mod[[best]]
       } else bm <- bm12
       
+      
+      scope <- colnames(X)[bm.qtn] 
+      if(any(is.na(bm$coefficients))) scope <- scope[-which(scope %in% names(bm$coefficients)[which(is.na(bm$coefficients))])]
+      nonscope <- colnames(X)[-which(colnames(X) %in% scope)]
       #p-values for markers in the bm computed by backwards elimination
-      drop1.ans <- drop1(bm,scope=colnames(X)[bm.qtn],test="F")
+      drop1.ans <- drop1(bm,scope=scope,test="F")
       
       #p-values for other markers computed by forward entry
-      add1.ans <- add1(bm,scope=colnames(X)[-bm.qtn],test="F")
+      add1.ans <- add1(bm,scope=nonscope,test="F")
       
       pval1 <- numeric(m)
       names(pval1) <- colnames(X)
